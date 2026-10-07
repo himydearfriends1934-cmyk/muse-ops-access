@@ -59,6 +59,18 @@ else
   echo "警告:sshd 配置校验未过,已撤回该账号的 sshd 限制(账号与公钥仍可用)"
 fi
 
+# --- 1.5) 面板的中止能力:仅允许面板账号杀 muse-ops 名下进程 ---
+if PKILL_PATH="$(command -v pkill)"; then
+  cat > "/etc/sudoers.d/$PANEL_USER" <<EOF
+# MUSE 运维接入系统:面板一键中止用,只准杀 muse-ops 的进程
+$PANEL_USER ALL=($OPS_USER) NOPASSWD: $PKILL_PATH
+EOF
+  chmod 440 "/etc/sudoers.d/$PANEL_USER"
+  visudo -cf "/etc/sudoers.d/$PANEL_USER" >/dev/null
+else
+  echo "警告: 未找到 pkill,面板中止将只能改状态、掐不断进程"
+fi
+
 # --- 2) 面板程序与运行账号 ---
 id "$PANEL_USER" >/dev/null 2>&1 \
   || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin "$PANEL_USER" 2>/dev/null \

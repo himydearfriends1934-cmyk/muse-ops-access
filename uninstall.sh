@@ -17,6 +17,7 @@ systemctl disable --now muse-ops-panel.service 2>/dev/null || true
 rm -f /etc/systemd/system/muse-ops-panel.service
 systemctl daemon-reload 2>/dev/null || true
 rm -f /usr/local/bin/muse-panel-ctl
+rm -f /etc/sudoers.d/muse-panel
 rm -rf "$APP_DIR"
 id "$PANEL_USER" >/dev/null 2>&1 && userdel "$PANEL_USER" 2>/dev/null || true
 echo "面板程序与服务已卸载"

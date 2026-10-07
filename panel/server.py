@@ -28,16 +28,35 @@ def db_connect(path):
     return conn
 
 
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, created INT, expires INT);
+CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INT, role TEXT, content TEXT, status TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INT, title TEXT, detail TEXT, command TEXT,
+                                 status TEXT DEFAULT 'pending', result TEXT DEFAULT '', updated INT DEFAULT 0,
+                                 level TEXT DEFAULT 'normal');
+CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INT, actor TEXT, action TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS connections(id INTEGER PRIMARY KEY AUTOINCREMENT, started INT, ended INT DEFAULT 0,
+                                       note TEXT DEFAULT '', status TEXT DEFAULT 'active');
+"""
+
+AUTH_MODES = ("full", "major", "each")
+
+
+def ensure_schema(conn):
+    conn.executescript(SCHEMA)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)")]
+    if "level" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN level TEXT DEFAULT 'normal'")
+    row = conn.execute("SELECT value FROM kv WHERE key='auth_mode'").fetchone()
+    if not row:
+        conn.execute("INSERT INTO kv(key,value) VALUES('auth_mode','major')")
+    conn.commit()
+
+
 def init_db(path, password):
     conn = db_connect(path)
-    conn.executescript("""
-    CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT);
-    CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, created INT, expires INT);
-    CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INT, role TEXT, content TEXT, status TEXT DEFAULT '');
-    CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INT, title TEXT, detail TEXT, command TEXT,
-                                     status TEXT DEFAULT 'pending', result TEXT DEFAULT '', updated INT DEFAULT 0);
-    CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INT, actor TEXT, action TEXT, detail TEXT);
-    """)
+    ensure_schema(conn)
     salt = secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ROUNDS)
     conn.execute("INSERT OR REPLACE INTO kv(key,value) VALUES('admin_pass',?)",
@@ -215,6 +234,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, host_status())
             if path == "/api/audit" and method == "GET":
                 return self.api_audit_get(qs)
+            if path == "/api/settings" and method == "GET":
+                conn = self.db()
+                mode = self.kv_get(conn, "auth_mode", "major")
+                conn.close()
+                return self.send_json(200, {"auth_mode": mode})
+            if path == "/api/settings" and method == "POST":
+                return self.api_settings_post()
+            if path == "/api/connections" and method == "GET":
+                conn = self.db()
+                rows = conn.execute("SELECT * FROM connections ORDER BY id DESC LIMIT 50").fetchall()
+                conn.close()
+                return self.send_json(200, {"connections": [dict(r) for r in rows]})
+            if path.startswith("/api/connections/") and method == "POST":
+                parts = path.strip("/").split("/")
+                if len(parts) == 4 and parts[3] == "terminate":
+                    return self.api_connection_terminate(int(parts[2]))
+                if len(parts) == 4 and parts[3] == "confirm":
+                    return self.api_connection_confirm(int(parts[2]))
+            if path == "/api/abort" and method == "POST":
+                return self.api_abort()
             self.send_json(404, {"error": "接口不存在"})
         except (ValueError, json.JSONDecodeError):
             self.send_json(400, {"error": "请求格式不对"})
@@ -313,6 +352,66 @@ class Handler(BaseHTTPRequestHandler):
         conn.close()
         self.send_json(200, {"ok": True})
 
+    def api_settings_post(self):
+        mode = str(self.read_json().get("auth_mode", ""))
+        if mode not in AUTH_MODES:
+            return self.send_json(400, {"error": "授权档位不对"})
+        conn = self.db()
+        self.kv_set(conn, "auth_mode", mode)
+        conn.execute("INSERT INTO audit(ts,actor,action,detail) VALUES(?,?,?,?)",
+                     (now(), "panel", "settings", f"授权档位改为 {mode}"))
+        conn.commit()
+        conn.close()
+        self.send_json(200, {"ok": True, "auth_mode": mode})
+
+    def api_connection_confirm(self, conn_id):
+        conn = self.db()
+        cur = conn.execute("UPDATE connections SET status='active' WHERE id=? AND status='pending'",
+                           (conn_id,))
+        if cur.rowcount:
+            conn.execute("INSERT INTO audit(ts,actor,action,detail) VALUES(?,?,?,?)",
+                         (now(), "panel", "confirm", f"连接 #{conn_id} 已确认"))
+            conn.commit()
+            conn.close()
+            return self.send_json(200, {"ok": True})
+        conn.close()
+        self.send_json(409, {"error": "该连接不在待确认状态"})
+
+    def api_connection_terminate(self, conn_id):
+        conn = self.db()
+        row = conn.execute("SELECT status FROM connections WHERE id=?", (conn_id,)).fetchone()
+        if not row:
+            conn.close()
+            return self.send_json(404, {"error": "连接不存在"})
+        conn.execute("UPDATE connections SET status='terminated', ended=? WHERE id=? AND status IN ('active','pending')",
+                     (now(), conn_id))
+        conn.execute("INSERT INTO audit(ts,actor,action,detail) VALUES(?,?,?,?)",
+                     (now(), "panel", "terminate", f"连接 #{conn_id} 已被终止"))
+        conn.commit()
+        conn.close()
+        self._kill_ops_processes()
+        self.send_json(200, {"ok": True})
+
+    def _kill_ops_processes(self):
+        # 面板运行账号经受限 sudo 只能杀 muse-ops 名下进程(装机时配置),失败不影响主流程
+        try:
+            subprocess.run(["sudo", "-n", "-u", "muse-ops", "/usr/bin/pkill", "-TERM", "-u", "muse-ops"],
+                           capture_output=True, timeout=8)
+        except Exception:
+            pass
+
+    def api_abort(self):
+        conn = self.db()
+        conn.execute("UPDATE connections SET status='terminated', ended=? WHERE status IN ('active','pending')", (now(),))
+        conn.execute("UPDATE tasks SET status='aborted', updated=? WHERE status IN ('approved','running')",
+                     (now(),))
+        conn.execute("INSERT INTO audit(ts,actor,action,detail) VALUES(?,?,?,?)",
+                     (now(), "panel", "abort", "一键中止:当前连接已终止,待执行/执行中任务已中止"))
+        conn.commit()
+        conn.close()
+        self._kill_ops_processes()
+        self.send_json(200, {"ok": True})
+
     def api_audit_get(self, qs):
         limit = min(int(qs.get("limit", ["100"])[0] or 100), 300)
         conn = self.db()
@@ -341,6 +440,9 @@ def main():
     if not os.path.exists(args.db):
         print("数据库不存在,请先 --init", file=sys.stderr)
         return 1
+    conn = db_connect(args.db)
+    ensure_schema(conn)
+    conn.close()
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 

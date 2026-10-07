@@ -47,15 +47,37 @@
     <button data-tab="tasks">审批与任务 <span id="taskBadge"></span></button>
     <button data-tab="status">机器状态</button>
     <button data-tab="audit">审计日志</button>
+    <button data-tab="settings">设置</button>
   </nav>
   <main>
     <section id="tab-chat">
+      <div id="pendingBanner" class="card hidden" style="border-color:var(--warn);cursor:pointer"></div>
       <div id="msgs"></div>
       <p class="dim">说明:在这里给 Muse 留言,几分钟内他会过来处理并回复。白名单外的高风险操作会出现在「审批与任务」里等你批准。</p>
     </section>
     <section id="tab-tasks" class="hidden"><div id="tasks"></div></section>
     <section id="tab-status" class="hidden"><div class="card"><div class="kv" id="statusKv"></div></div></section>
     <section id="tab-audit" class="hidden"><div class="card"><table><thead><tr><th style="width:150px">时间</th><th style="width:110px">来源</th><th style="width:130px">动作</th><th>详情</th></tr></thead><tbody id="auditBody"></tbody></table></div></section>
+    <section id="tab-settings" class="hidden">
+      <div class="card">
+        <h3 style="margin:4px 0">授权档位</h3>
+        <p class="dim">控制 Muse 的操作要不要先经你确认。修改立即生效,对他正在进行的连接同样有效。</p>
+        <label style="display:block;margin:8px 0"><input type="radio" name="mode" value="full"> <b>全权</b> <span class="dim">— 所有操作直接执行,不再逐个问你(审计照常记录)</span></label>
+        <label style="display:block;margin:8px 0"><input type="radio" name="mode" value="major"> <b>重大请求确认</b> <span class="dim">— 普通操作直接做,重大操作(删数据、改配置、重启服务、装软件等)先等你批准</span></label>
+        <label style="display:block;margin:8px 0"><input type="radio" name="mode" value="each"> <b>每个请求确认</b> <span class="dim">— 每个操作都先等你批准才执行</span></label>
+        <p><button id="modeSave">保存档位</button> <span class="dim" id="modeSaved"></span></p>
+      </div>
+      <div class="card">
+        <h3 style="margin:4px 0">Muse 的连接</h3>
+        <p class="dim">他每次接进来都会在这里登记。在「每个请求确认」档下,新连接会先停在待确认,你点「确认连接」他才能开始操作。终止某个连接后,他必须重新登记才能继续。</p>
+        <div id="conns"><span class="dim">加载中…</span></div>
+      </div>
+      <div class="card" style="border-color:var(--bad)">
+        <h3 style="margin:4px 0;color:var(--bad)">紧急中止</h3>
+        <p class="dim">立即终止他当前的连接、掐断他正在运行的进程、并把待执行/执行中的任务标为已中止。审计会留下记录。</p>
+        <button class="bad" id="abortBtn">立即中止 Muse 的操作</button>
+      </div>
+    </section>
   </main>
   <div id="composer">
     <div>
@@ -88,8 +110,8 @@ $("#pw").addEventListener("keydown",e=>{if(e.key==="Enter")$("#loginBtn").click(
 $("#logoutBtn").onclick=async()=>{await api("/api/logout",{method:"POST"}).catch(()=>{});location.reload()};
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
-  ["chat","tasks","status","audit"].forEach(t=>$("#tab-"+t).classList.toggle("hidden",t!==b.dataset.tab));
-  if(b.dataset.tab==="status")loadStatus(); if(b.dataset.tab==="audit")loadAudit(); if(b.dataset.tab==="tasks")loadTasks();
+  ["chat","tasks","status","audit","settings"].forEach(t=>$("#tab-"+t).classList.toggle("hidden",t!==b.dataset.tab));
+  if(b.dataset.tab==="status")loadStatus(); if(b.dataset.tab==="audit")loadAudit(); if(b.dataset.tab==="tasks")loadTasks(); if(b.dataset.tab==="settings")loadSettings();
 });
 function renderMsg(m){
   const div=document.createElement("div");div.className="msg "+m.role;
@@ -106,7 +128,7 @@ $("#sendBtn").onclick=async()=>{
   await api("/api/messages",{method:"POST",body:JSON.stringify({content:v})});loadMsgs();
 };
 $("#input").addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey))$("#sendBtn").click()});
-const STNAME={pending:"待审批",approved:"已批准,待执行",rejected:"已拒绝",done:"已完成",failed:"执行失败"};
+const STNAME={pending:"待审批",approved:"已批准,待执行",running:"执行中",rejected:"已拒绝",done:"已完成",failed:"执行失败",aborted:"已中止"};
 async function loadTasks(){
   const j=await api("/api/tasks");
   const pend=j.tasks.filter(t=>t.status==="pending").length;
@@ -114,7 +136,7 @@ async function loadTasks(){
   $("#tasks").innerHTML=j.tasks.length?"":'<div class="card dim">暂无任务</div>';
   for(const t of j.tasks){
     const d=document.createElement("div");d.className="card task";
-    d.innerHTML=`<div><b>#${t.id} ${esc(t.title)}</b> <span class="pill st-${t.status}">${STNAME[t.status]||t.status}</span></div>
+    d.innerHTML=`<div><b>#${t.id} ${esc(t.title)}</b> <span class="pill st-${t.status}">${STNAME[t.status]||t.status}</span>${t.level==="major"?'<span class="pill" style="color:var(--bad);border-color:var(--bad);margin-left:6px">重大操作</span>':""}</div>
       <div class="dim">${fmtTs(t.ts)}${t.updated&&t.updated!==t.ts?" · 更新 "+fmtTs(t.updated):""}</div>
       ${t.detail?`<div style="margin-top:6px">${esc(t.detail)}</div>`:""}
       ${t.command?`<pre>${esc(t.command)}</pre>`:""}
@@ -136,8 +158,46 @@ async function loadAudit(){
   const j=await api("/api/audit?limit=120");
   $("#auditBody").innerHTML=j.audit.map(a=>`<tr><td>${fmtTs(a.ts)}</td><td>${esc(a.actor)}</td><td>${esc(a.action)}</td><td>${esc(a.detail)}</td></tr>`).join("");
 }
-function refreshAll(){loadMsgs();loadTasks();loadStatus()}
-setInterval(()=>{if(authed){loadMsgs();loadTasks()}},10000);
+async function loadSettings(){
+  const s=await api("/api/settings");
+  document.querySelectorAll('input[name="mode"]').forEach(r=>r.checked=(r.value===s.auth_mode));
+  const c=await api("/api/connections");
+  const CST={active:"在线",pending:"待你确认",ended:"已结束",terminated:"已被终止"};
+  $("#conns").innerHTML=c.connections.length?c.connections.map(x=>
+    `<div style="padding:7px 0;border-bottom:1px solid var(--line)">连接 #${x.id} · ${CST[x.status]||x.status} · 开始 ${fmtTs(x.started)}${x.ended?" · 结束 "+fmtTs(x.ended):""}${x.note?` · ${esc(x.note)}`:""}${x.status==="pending"?` <button data-confirm="${x.id}" style="float:right">确认连接</button>`:""}${x.status==="active"||x.status==="pending"?` <button class="ghost" data-term="${x.id}" style="float:right;margin-right:6px">${x.status==="pending"?"拒绝":"终止"}</button>`:""}</div>`).join(""):'<span class="dim">暂无连接记录</span>';
+  document.querySelectorAll("button[data-term]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("终止这个连接?Muse 将必须重新登记才能继续操作。"))return;
+    await api(`/api/connections/${b.dataset.term}/terminate`,{method:"POST"});loadSettings();
+  });
+  document.querySelectorAll("button[data-confirm]").forEach(b=>b.onclick=async()=>{
+    await api(`/api/connections/${b.dataset.confirm}/confirm`,{method:"POST"});loadSettings();
+  });
+}
+$("#modeSave").onclick=async()=>{
+  const v=document.querySelector('input[name="mode"]:checked');if(!v)return;
+  await api("/api/settings",{method:"POST",body:JSON.stringify({auth_mode:v.value})});
+  $("#modeSaved").textContent="已保存,即时生效";
+};
+$("#abortBtn").onclick=async()=>{
+  if(!confirm("立即中止 Muse 当前的连接与操作?"))return;
+  await api("/api/abort",{method:"POST"});loadSettings();loadTasks();
+  alert("已发出中止:连接终止、进程掐断、执行中任务已标记中止。");
+};
+async function checkPending(){
+  try{
+    const [t,c]=await Promise.all([api("/api/tasks"),api("/api/connections")]);
+    const pt=t.tasks.filter(x=>x.status==="pending").length;
+    const pc=c.connections.filter(x=>x.status==="pending").length;
+    const b=$("#pendingBanner");
+    if(pt||pc){
+      b.classList.remove("hidden");
+      b.textContent=`有 ${pc?pc+" 个连接":""}${pc&&pt?"、":""}${pt?pt+" 个操作":""} 待你确认,点这里去处理`;
+      b.onclick=()=>document.querySelector(`nav button[data-tab="${pc?"settings":"tasks"}"]`).click();
+    } else b.classList.add("hidden");
+  }catch(e){}
+}
+function refreshAll(){loadMsgs();loadTasks();loadStatus();checkPending()}
+setInterval(()=>{if(authed){loadMsgs();loadTasks();checkPending();if(!$("#tab-settings").classList.contains("hidden"))loadSettings()}},10000);
 api("/api/me").then(showApp).catch(showLogin);
 </script>
 </body>
