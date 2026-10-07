@@ -29,7 +29,11 @@ echo "python3: $(python3 --version)"
 
 # --- 1) 运维账号 muse-ops(给 Muse 的 SSH 接入口) ---
 if ! id "$OPS_USER" >/dev/null 2>&1; then
-  useradd -m -s /bin/bash "$OPS_USER"
+  if getent group "$OPS_USER" >/dev/null 2>&1; then
+    useradd -g "$OPS_USER" -m -s /bin/bash "$OPS_USER"
+  else
+    useradd -m -s /bin/bash "$OPS_USER"
+  fi
   passwd -l "$OPS_USER" >/dev/null
   echo "已创建运维账号 $OPS_USER"
 fi
@@ -72,9 +76,14 @@ else
 fi
 
 # --- 2) 面板程序与运行账号 ---
-id "$PANEL_USER" >/dev/null 2>&1 \
-  || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin "$PANEL_USER" 2>/dev/null \
-  || useradd --system --home-dir "$DATA_DIR" --shell /bin/false "$PANEL_USER"
+if ! id "$PANEL_USER" >/dev/null 2>&1; then
+  NOLOGIN_SHELL="/usr/sbin/nologin"; [ -x "$NOLOGIN_SHELL" ] || NOLOGIN_SHELL="/bin/false"
+  if getent group "$PANEL_USER" >/dev/null 2>&1; then
+    useradd --system -g "$PANEL_USER" --home-dir "$DATA_DIR" --shell "$NOLOGIN_SHELL" "$PANEL_USER"
+  else
+    useradd --system --home-dir "$DATA_DIR" --shell "$NOLOGIN_SHELL" "$PANEL_USER"
+  fi
+fi
 usermod -aG "$PANEL_USER" "$OPS_USER"  # 让 Muse 经 SSH 能读写面板数据库
 mkdir -p "$APP_DIR" "$DATA_DIR"
 cp -r "$SRC_DIR/panel/." "$APP_DIR/"
@@ -115,7 +124,9 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now muse-ops-panel.service \
+systemctl enable muse-ops-panel.service >/dev/null 2>&1 || true
+# 用 restart 而不是 start:更新场景下让已在跑的服务加载新代码
+systemctl restart muse-ops-panel.service \
   || echo "警告: systemd 启动失败,请看 journalctl -u muse-ops-panel,或手动: python3 $APP_DIR/server.py --port $PORT --db $DATA_DIR/panel.db"
 
 PUBIP="$(curl -s --max-time 5 https://api.ipify.org || true)"

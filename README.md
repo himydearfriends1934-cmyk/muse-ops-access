@@ -4,13 +4,44 @@
 你在面板里和 Muse 对话、审批高风险操作、看审计日志;Muse 不知道你的任何密码,
 靠 SSH 公钥登录(私钥只在 Muse 的运行环境里,公钥放在服务器上)。
 
-## 安装(服务器上 root 执行)
+## 一键安装 / 更新 / 卸载(服务器上 root 执行)
+
+拉取代码:
 
 ```
-bash install.sh
+git clone https://github.com/himydearfriends1934-cmyk/muse-ops-access.git
+cd muse-ops-access
 ```
 
-会依次完成:
+打开管理菜单:
+
+```
+bash manage.sh
+```
+
+```
+========== MUSE 运维接入系统 ==========
+  1) 安装/更新(含依赖)
+  2) 卸载软件及依赖
+  0) 退出
+```
+
+- **选 1**:安装或更新。缺 python3 会自动装;已装过就是更新——程序换新、
+  数据和面板密码保留、服务自动重启加载新代码。
+- **选 2**:卸载软件及依赖。会删干净面板程序、systemd 服务、运行账号
+  `muse-panel`、数据目录、运维账号 `muse-ops` 及其 sudo 与 sshd 配置
+  (需输入 y 确认)。python3 是系统组件不会动它,避免误伤服务器其他软件。
+
+不想看菜单也可以直接带参数(适合写进脚本):
+
+```
+bash manage.sh install      # 安装/更新
+bash manage.sh uninstall    # 卸载(彻底清除)
+```
+
+也可以跳过菜单直接运行 `bash install.sh` / `bash uninstall.sh --purge`,效果相同。
+
+安装会依次完成:
 
 1. 建运维账号 `muse-ops`:密码锁定、仅允许 Muse 的公钥登录、sudo 免密(所有 sudo
    操作记到 `/var/log/muse-ops-sudo.log`),只对该账号禁用密码登录,不影响你自己。
@@ -65,9 +96,11 @@ userdel -r muse-ops
 
 ## 卸载
 
+推荐用菜单:`bash manage.sh` 选 2。或直接:
+
 ```
-bash uninstall.sh            # 卸载面板程序/服务,保留数据与运维账号
-bash uninstall.sh --purge    # 连数据、muse-panel/muse-ops 账号、sudo 与 sshd 配置一并清除
+bash uninstall.sh            # 只卸面板程序/服务,保留数据与运维账号
+bash uninstall.sh --purge    # 彻底清除(等同菜单选 2)
 ```
 
 ## 重置面板密码
@@ -86,4 +119,5 @@ systemctl start muse-ops-panel
 - `panel/server.py` 面板后端(Python 标准库零依赖:登录/对话/审批/状态/审计 API)
 - `panel/static/index.html` 面板前端(单文件)
 - `panel/ctl.py` Muse 侧命令行(经 SSH 调用)
-- `install.sh` / `uninstall.sh` 一键安装/卸载
+- `manage.sh` 管理菜单(1 安装/更新含依赖,2 卸载软件及依赖)
+- `install.sh` / `uninstall.sh` 实际执行安装/卸载的脚本(菜单调用它们)

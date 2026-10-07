@@ -20,6 +20,7 @@ rm -f /usr/local/bin/muse-panel-ctl
 rm -f /etc/sudoers.d/muse-panel
 rm -rf "$APP_DIR"
 id "$PANEL_USER" >/dev/null 2>&1 && userdel "$PANEL_USER" 2>/dev/null || true
+getent group "$PANEL_USER" >/dev/null 2>&1 && groupdel "$PANEL_USER" 2>/dev/null || true
 echo "面板程序与服务已卸载"
 
 if [ "$PURGE" = "1" ]; then
@@ -27,6 +28,8 @@ if [ "$PURGE" = "1" ]; then
   rm -f "/etc/sudoers.d/$OPS_USER" "/etc/ssh/sshd_config.d/$OPS_USER.conf" /var/log/muse-ops-sudo.log
   if sshd -t 2>/dev/null; then systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true; fi
   id "$OPS_USER" >/dev/null 2>&1 && userdel -r "$OPS_USER" 2>/dev/null || true
+  getent group "$OPS_USER" >/dev/null 2>&1 && groupdel "$OPS_USER" 2>/dev/null || true
+  getent group "$PANEL_USER" >/dev/null 2>&1 && groupdel "$PANEL_USER" 2>/dev/null || true
   echo "已彻底清除:数据目录、运维账号 $OPS_USER 及其授权全部删除,Muse 不再能登录这台机器"
 else
   echo "已保留:$DATA_DIR(对话与审计数据)"
