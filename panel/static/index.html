@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUSE 运维接入系统</title>
+<style>
+  :root{--bg:#0f1420;--card:#1a2233;--line:#2a3650;--txt:#e8edf7;--dim:#93a1bd;--acc:#4da3ff;--ok:#3ecf8e;--bad:#ff6b6b;--warn:#ffb84d}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+  header h1{font-size:17px;margin:0}header .sp{flex:1}button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:7px 14px;cursor:pointer;font-size:14px}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}button.bad{background:var(--bad)}button:disabled{opacity:.5}
+  nav{display:flex;gap:8px;padding:10px 18px 0}nav button{background:transparent;color:var(--dim);border:1px solid transparent}
+  nav button.on{color:var(--txt);border-color:var(--line);background:var(--card)}
+  main{padding:16px 18px 90px;max-width:960px;margin:0 auto}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+  .dim{color:var(--dim);font-size:13px}.msg{margin:10px 0;display:flex}.msg .b{max-width:82%;padding:9px 13px;border-radius:12px;white-space:pre-wrap;word-break:break-word}
+  .msg.user{justify-content:flex-end}.msg.user .b{background:#24507e}.msg.assistant .b{background:#232f47}.msg.system .b{background:transparent;border:1px dashed var(--line);color:var(--dim)}
+  #composer{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:10px 18px}
+  #composer div{max-width:960px;margin:0 auto;display:flex;gap:8px}textarea{flex:1;background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:9px;resize:none;height:44px;font:inherit}
+  .task .acts{margin-top:8px;display:flex;gap:8px}.pill{display:inline-block;padding:1px 9px;border-radius:20px;font-size:12px;border:1px solid var(--line)}
+  .st-pending{color:var(--warn)}.st-approved{color:var(--acc)}.st-done{color:var(--ok)}.st-failed,.st-rejected{color:var(--bad)}
+  pre{background:#101828;border:1px solid var(--line);border-radius:8px;padding:8px 10px;overflow-x:auto;font-size:13px;white-space:pre-wrap;word-break:break-word}
+  #login{max-width:360px;margin:14vh auto}.hidden{display:none}table{width:100%;border-collapse:collapse}td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;font-size:14px;vertical-align:top}
+  .kv{display:grid;grid-template-columns:110px 1fr;gap:6px 14px}
+</style>
+</head>
+<body>
+<div id="login" class="hidden">
+  <div class="card">
+    <h1 style="margin:4px 0 10px">MUSE 运维接入系统</h1>
+    <p class="dim">管理员登录(用户名 admin)</p>
+    <input id="pw" type="password" placeholder="面板密码" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:#101828;color:var(--txt)">
+    <p><button id="loginBtn" style="width:100%">登录</button></p>
+    <p id="loginErr" style="color:var(--bad)"></p>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <h1>MUSE 运维接入系统</h1>
+    <span class="dim" id="hdrStatus"></span>
+    <span class="sp"></span>
+    <button class="ghost" id="logoutBtn">退出</button>
+  </header>
+  <nav>
+    <button data-tab="chat" class="on">对话</button>
+    <button data-tab="tasks">审批与任务 <span id="taskBadge"></span></button>
+    <button data-tab="status">机器状态</button>
+    <button data-tab="audit">审计日志</button>
+  </nav>
+  <main>
+    <section id="tab-chat">
+      <div id="msgs"></div>
+      <p class="dim">说明:在这里给 Muse 留言,几分钟内他会过来处理并回复。白名单外的高风险操作会出现在「审批与任务」里等你批准。</p>
+    </section>
+    <section id="tab-tasks" class="hidden"><div id="tasks"></div></section>
+    <section id="tab-status" class="hidden"><div class="card"><div class="kv" id="statusKv"></div></div></section>
+    <section id="tab-audit" class="hidden"><div class="card"><table><thead><tr><th style="width:150px">时间</th><th style="width:110px">来源</th><th style="width:130px">动作</th><th>详情</th></tr></thead><tbody id="auditBody"></tbody></table></div></section>
+  </main>
+  <div id="composer">
+    <div>
+      <textarea id="input" placeholder="给 Muse 留言,例如:帮我看下磁盘占用"></textarea>
+      <button id="sendBtn">发送</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+let lastMsgId=0, authed=false;
+function esc(s){const d=document.createElement("div");d.textContent=s??"";return d.innerHTML}
+function fmtTs(t){return new Date(t*1000).toLocaleString("zh-CN",{hour12:false})}
+async function api(path,opts={}){
+  const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});
+  if(r.status===401){showLogin();throw new Error("unauthorized")}
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||("HTTP "+r.status));
+  return j;
+}
+function showLogin(){$("#login").classList.remove("hidden");$("#app").classList.add("hidden");authed=false}
+function showApp(){$("#login").classList.add("hidden");$("#app").classList.remove("hidden");authed=true;refreshAll()}
+$("#loginBtn").onclick=async()=>{
+  $("#loginErr").textContent="";
+  try{await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("#pw").value})}).then(async r=>{if(!r.ok)throw new Error((await r.json()).error||"登录失败")});showApp()}
+  catch(e){$("#loginErr").textContent=e.message}
+};
+$("#pw").addEventListener("keydown",e=>{if(e.key==="Enter")$("#loginBtn").click()});
+$("#logoutBtn").onclick=async()=>{await api("/api/logout",{method:"POST"}).catch(()=>{});location.reload()};
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
+  ["chat","tasks","status","audit"].forEach(t=>$("#tab-"+t).classList.toggle("hidden",t!==b.dataset.tab));
+  if(b.dataset.tab==="status")loadStatus(); if(b.dataset.tab==="audit")loadAudit(); if(b.dataset.tab==="tasks")loadTasks();
+});
+function renderMsg(m){
+  const div=document.createElement("div");div.className="msg "+m.role;
+  div.innerHTML=`<div class="b">${esc(m.content)}<div class="dim" style="margin-top:4px">${fmtTs(m.ts)}${m.role==="user"&&m.status==="pending"?" · 待 Muse 处理":""}</div></div>`;
+  return div;
+}
+async function loadMsgs(){
+  const j=await api("/api/messages?after_id="+lastMsgId);
+  for(const m of j.messages){lastMsgId=Math.max(lastMsgId,m.id);$("#msgs").appendChild(renderMsg(m))}
+  if(j.messages.length)window.scrollTo(0,document.body.scrollHeight);
+}
+$("#sendBtn").onclick=async()=>{
+  const v=$("#input").value.trim();if(!v)return;$("#input").value="";
+  await api("/api/messages",{method:"POST",body:JSON.stringify({content:v})});loadMsgs();
+};
+$("#input").addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey))$("#sendBtn").click()});
+const STNAME={pending:"待审批",approved:"已批准,待执行",rejected:"已拒绝",done:"已完成",failed:"执行失败"};
+async function loadTasks(){
+  const j=await api("/api/tasks");
+  const pend=j.tasks.filter(t=>t.status==="pending").length;
+  $("#taskBadge").textContent=pend?`(${pend})`:"";
+  $("#tasks").innerHTML=j.tasks.length?"":'<div class="card dim">暂无任务</div>';
+  for(const t of j.tasks){
+    const d=document.createElement("div");d.className="card task";
+    d.innerHTML=`<div><b>#${t.id} ${esc(t.title)}</b> <span class="pill st-${t.status}">${STNAME[t.status]||t.status}</span></div>
+      <div class="dim">${fmtTs(t.ts)}${t.updated&&t.updated!==t.ts?" · 更新 "+fmtTs(t.updated):""}</div>
+      ${t.detail?`<div style="margin-top:6px">${esc(t.detail)}</div>`:""}
+      ${t.command?`<pre>${esc(t.command)}</pre>`:""}
+      ${t.result?`<div class="dim">结果:${esc(t.result)}</div>`:""}
+      ${t.status==="pending"?'<div class="acts"><button data-a="approve">批准执行</button><button class="bad" data-a="reject">拒绝</button></div>':""}`;
+    d.querySelectorAll("button[data-a]").forEach(b=>b.onclick=async()=>{
+      await api(`/api/tasks/${t.id}/${b.dataset.a}`,{method:"POST"});loadTasks();
+    });
+    $("#tasks").appendChild(d);
+  }
+}
+async function loadStatus(){
+  const s=await api("/api/status");
+  $("#statusKv").innerHTML=[["主机名",s.hostname],["系统",s.os],["已运行",s.uptime_text],["负载",s.load],["内存",s.mem],["磁盘",s.disk],["失败服务",s.failed_units]]
+    .map(([k,v])=>`<div class="dim">${k}</div><div>${esc(v)||"-"}</div>`).join("");
+  $("#hdrStatus").textContent=s.hostname||"";
+}
+async function loadAudit(){
+  const j=await api("/api/audit?limit=120");
+  $("#auditBody").innerHTML=j.audit.map(a=>`<tr><td>${fmtTs(a.ts)}</td><td>${esc(a.actor)}</td><td>${esc(a.action)}</td><td>${esc(a.detail)}</td></tr>`).join("");
+}
+function refreshAll(){loadMsgs();loadTasks();loadStatus()}
+setInterval(()=>{if(authed){loadMsgs();loadTasks()}},10000);
+api("/api/me").then(showApp).catch(showLogin);
+</script>
+</body>
+</html>
