@@ -17,7 +17,7 @@ bash install.sh
 2. 建面板运行账号 `muse-panel`,程序装到 `/opt/muse-ops-panel`,数据(SQLite)在
    `/var/lib/muse-ops-panel/panel.db`。
 3. 现场设置面板管理员密码(用户名固定 `admin`,密码只以哈希存本机)。
-4. 注册 systemd 服务 `muse-ops-panel`,默认端口 **8787**(可用
+4. 注册 systemd 服务 `muse-ops-panel`,默认端口 **13628**(可用
    `MUSE_PANEL_PORT=8899 bash install.sh` 改)。
 
 装完把脚本末尾打印的 IP、SSH 端口、账号三行发给 Muse,他接入后会先做只读核验,
@@ -25,7 +25,7 @@ bash install.sh
 
 ## 日常使用
 
-打开 `http://<服务器IP>:8787/` 登录后有四个页签:
+打开 `http://<服务器IP>:13628/` 登录后有四个页签:
 
 - **对话**:给 Muse 留言。他每隔几分钟经 SSH 过来看一次,回复也在这里(所以延迟
   是几分钟,不是实时)。

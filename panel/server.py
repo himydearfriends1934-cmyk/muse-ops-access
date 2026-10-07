@@ -323,7 +323,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8787)
+    ap.add_argument("--port", type=int, default=13628)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--db", default="/var/lib/muse-ops-panel/panel.db")
     ap.add_argument("--init", action="store_true", help="用环境变量 MUSE_PANEL_INIT_PW 初始化/重置管理员密码")

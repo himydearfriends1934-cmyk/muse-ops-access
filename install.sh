@@ -3,7 +3,7 @@
 #   bash install.sh
 # 做四件事:① 建运维账号 muse-ops(密钥登录+sudo,供 Muse 经 SSH 接入)
 #          ② 装面板到 /opt/muse-ops-panel,数据在 /var/lib/muse-ops-panel
-#          ③ 注册 systemd 服务 muse-ops-panel(默认端口 8787)
+#          ③ 注册 systemd 服务 muse-ops-panel(默认端口 13628)
 #          ④ 让你现场设置面板管理员密码(只存哈希在本机,Muse 不知道)
 set -euo pipefail
 
@@ -13,7 +13,7 @@ APP_DIR="/opt/muse-ops-panel"
 DATA_DIR="/var/lib/muse-ops-panel"
 PANEL_USER="muse-panel"
 OPS_USER="muse-ops"
-PORT="${MUSE_PANEL_PORT:-8787}"
+PORT="${MUSE_PANEL_PORT:-13628}"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行: bash install.sh" >&2; exit 1; }
 
