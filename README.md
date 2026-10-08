@@ -22,9 +22,23 @@ bash manage.sh
 - **选 1**：建运维账号 `muse-ops` 并写入 Muse 的公钥，配置免密 sudo（所有 sudo 操作记到 `/var/log/muse-ops-sudo.log`），仅对该账号禁密码登录，不影响你自己其他账号。
 - **选 2**：彻底卸载，删除 `muse-ops` 账号及其 sudo、sshd 配置；若机器上有旧版面板残留（程序/服务/数据/面板账号），一并清理。
 
-也可以直接带参数：`bash manage.sh install` / `bash manage.sh uninstall`，或跳过菜单直接运行 `bash install.sh` / `bash uninstall.sh`。
+也可以直接带参数：`bash manage.sh install` / `bash manage.sh uninstall` / `bash manage.sh verify`，或跳过菜单直接运行 `bash install.sh` / `bash uninstall.sh` / `bash verify.sh`。
 
-装完把脚本末尾打印的 IP 与 SSH 端口发给 Muse，他接入后会先做只读核验。你经 Tailscale 内网登录更安全：公网 SSH 可以全部关掉，只留 Tailscale 通道。
+## 各系统快速开始
+
+- **Debian/Ubuntu**：直接跑上面的安装命令即可（缺 sudo 会尝试自动装）。
+- **Alpine**：若 `bash`、`git`、`curl`、`sshd` 缺，先 `apk add bash git curl openssh sudo`，再跑安装命令。安装脚本会自动适配 Alpine（账号创建方式、免密 sudo、sshd 重载、锁定账号坑均已处理）。强烈建议 sshd 只监听 Tailscale 地址。
+- **RHEL 系（CentOS/Rocky/Oracle Linux 等）**：同 Debian 路径即可。
+
+## 装完这样交付（重要）
+
+安装脚本跑完会自动打印一段**安装自检**（账号、公钥、权限、sudoers、sshd 生效配置、监听端口逐项打勾）。
+
+1. 若有 `[FAIL]`，先别急着喊 Muse 连：把整段自检输出发给他，他直接判断缺哪一项。
+2. 全部通过后，把脚本末尾打印的 **IP 与 SSH 端口** 发给 Muse，他接入后再做只读核验。
+3. 之后任何时候怀疑连不上，跑 `bash verify.sh`（只读），输出整段发给 Muse 定位。
+
+你经 Tailscale 内网登录更安全：公网 SSH 可以全部关掉，只留 Tailscale 通道。
 
 ## 吊销 Muse 的访问（随时，不需要 Muse 配合）
 
