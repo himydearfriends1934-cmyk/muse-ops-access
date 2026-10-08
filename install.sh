@@ -14,6 +14,7 @@ DATA_DIR="/var/lib/muse-ops-panel"
 PANEL_USER="muse-panel"
 OPS_USER="muse-ops"
 PORT="${MUSE_PANEL_PORT:-13628}"
+HOST_BIND="${MUSE_PANEL_HOST:-0.0.0.0}"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行: bash install.sh" >&2; exit 1; }
 
@@ -116,7 +117,7 @@ Wants=network-online.target
 Type=simple
 User=$PANEL_USER
 Group=$PANEL_USER
-ExecStart=/usr/bin/python3 $APP_DIR/server.py --port $PORT --db $DATA_DIR/panel.db
+ExecStart=/usr/bin/python3 $APP_DIR/server.py --host $HOST_BIND --port $PORT --db $DATA_DIR/panel.db
 Restart=on-failure
 RestartSec=3
 

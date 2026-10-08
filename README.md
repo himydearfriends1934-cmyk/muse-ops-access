@@ -54,6 +54,17 @@ bash manage.sh uninstall    # 卸载(彻底清除)
 装完把脚本末尾打印的 IP、SSH 端口、账号三行发给 Muse,他接入后会先做只读核验,
 之后你们在面板里沟通。若云厂商有安全组,需放行面板端口(建议只对你自己的 IP 放行)。
 
+**只想走 Tailscale 内网、公网禁用面板**：安装/更新时加一个环境变量，面板就只绑在
+服务器的 Tailscale 地址上，公网怎么都连不上（以后面板地址用
+`http://<服务器的 Tailscale IP>:13628` 打开）：
+
+```
+MUSE_PANEL_HOST=100.x.x.x bash manage.sh    # 选 1，或 bash install.sh
+```
+
+（`100.x.x.x` 换成该机 `tailscale status` 里看到的地址；不加这个变量就是默认的
+0.0.0.0 全网监听。）
+
 ## 日常使用
 
 打开 `http://<服务器IP>:13628/` 登录后有四个页签:
