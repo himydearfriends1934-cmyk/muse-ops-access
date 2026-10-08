@@ -29,6 +29,11 @@ if ! id "$OPS_USER" >/dev/null 2>&1; then
   if [ "$ALPINE" = "1" ]; then
     command -v sudo >/dev/null 2>&1 || apk add --no-cache sudo >/dev/null
     adduser -D -s /bin/bash "$OPS_USER" 2>/dev/null || adduser -D -s /bin/sh "$OPS_USER"
+    # Alpine 的 sshd(无 PAM)会拒绝 shadow 里带 ! 的锁定账号,连公钥也进不去;改成 * 才行
+    if command -v usermod >/dev/null 2>&1; then
+      usermod -p '*' "$OPS_USER" 2>/dev/null || true
+    fi
+    sed -i "s|^\($OPS_USER\):!|\1:*|" /etc/shadow 2>/dev/null || true
   else
     if getent group "$OPS_USER" >/dev/null 2>&1; then
       useradd -g "$OPS_USER" -m -s /bin/bash "$OPS_USER"
