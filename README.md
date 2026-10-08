@@ -1,103 +1,32 @@
-# MUSE 运维接入系统
+# MUSE 运维接入（AGENT 版）
 
-装在你自己的服务器上:一个面板 + 一个供 Muse 接入的运维账号。
-你在面板里和 Muse 对话、审批高风险操作、看审计日志;Muse 不知道你的任何密码,
-靠 SSH 公钥登录(私钥只在 Muse 的运行环境里,公钥放在服务器上)。
+在一台 VPS 上给 Muse 开一个专用的运维账号，让他能在你授权下经 SSH 登录做运维。
 
-## 一键安装 / 更新 / 卸载(服务器上 root 执行)
+Muse 不知道你的任何密码：这个账号密码锁定、禁密码登录，只认 Muse 的公钥（私钥只在 Muse 的运行环境里）。你在 Muse 聊天里直接指挥他即可，不需要任何面板。
 
-拉取代码:
+## 一键安装 / 卸载（服务器上 root 执行）
 
 ```
 git clone https://github.com/himydearfriends1934-cmyk/muse-ops-access.git
 cd muse-ops-access
-```
-
-打开管理菜单:
-
-```
 bash manage.sh
 ```
 
 ```
-========== MUSE 运维接入系统 ==========
-  1) 安装/更新(含依赖)
+========== MUSE 运维接入(AGENT 版) ==========
+  1) 安装/更新
   2) 卸载软件及依赖
   0) 退出
 ```
 
-- **选 1**:安装或更新。缺 python3 会自动装;已装过就是更新——程序换新、
-  数据和面板密码保留、服务自动重启加载新代码。
-- **选 2**:卸载软件及依赖。会删干净面板程序、systemd 服务、运行账号
-  `muse-panel`、数据目录、运维账号 `muse-ops` 及其 sudo 与 sshd 配置
-  (需输入 y 确认)。python3 是系统组件不会动它,避免误伤服务器其他软件。
+- **选 1**：建运维账号 `muse-ops` 并写入 Muse 的公钥，配置免密 sudo（所有 sudo 操作记到 `/var/log/muse-ops-sudo.log`），仅对该账号禁密码登录，不影响你自己其他账号。
+- **选 2**：彻底卸载，删除 `muse-ops` 账号及其 sudo、sshd 配置；若机器上有旧版面板残留（程序/服务/数据/面板账号），一并清理。
 
-不想看菜单也可以直接带参数(适合写进脚本):
+也可以直接带参数：`bash manage.sh install` / `bash manage.sh uninstall`，或跳过菜单直接运行 `bash install.sh` / `bash uninstall.sh`。
 
-```
-bash manage.sh install      # 安装/更新
-bash manage.sh uninstall    # 卸载(彻底清除)
-```
+装完把脚本末尾打印的 IP 与 SSH 端口发给 Muse，他接入后会先做只读核验。你经 Tailscale 内网登录更安全：公网 SSH 可以全部关掉，只留 Tailscale 通道。
 
-也可以跳过菜单直接运行 `bash install.sh` / `bash uninstall.sh --purge`,效果相同。
-
-安装会依次完成:
-
-1. 建运维账号 `muse-ops`:密码锁定、仅允许 Muse 的公钥登录、sudo 免密(所有 sudo
-   操作记到 `/var/log/muse-ops-sudo.log`),只对该账号禁用密码登录,不影响你自己。
-2. 建面板运行账号 `muse-panel`,程序装到 `/opt/muse-ops-panel`,数据(SQLite)在
-   `/var/lib/muse-ops-panel/panel.db`。
-3. 现场设置面板管理员密码(用户名固定 `admin`,密码只以哈希存本机)。
-4. 注册 systemd 服务 `muse-ops-panel`,默认端口 **13628**(可用
-   `MUSE_PANEL_PORT=8899 bash install.sh` 改)。
-
-装完把脚本末尾打印的 IP、SSH 端口、账号三行发给 Muse,他接入后会先做只读核验,
-之后你们在面板里沟通。若云厂商有安全组,需放行面板端口(建议只对你自己的 IP 放行)。
-
-**只想走 Tailscale 内网、公网禁用面板**：安装/更新时加一个环境变量，面板就只绑在
-服务器的 Tailscale 地址上，公网怎么都连不上（以后面板地址用
-`http://<服务器的 Tailscale IP>:13628` 打开）：
-
-```
-MUSE_PANEL_HOST=100.x.x.x bash manage.sh    # 选 1，或 bash install.sh
-```
-
-（`100.x.x.x` 换成该机 `tailscale status` 里看到的地址；不加这个变量就是默认的
-0.0.0.0 全网监听。）
-
-## 日常使用
-
-打开 `http://<服务器IP>:13628/` 登录后有四个页签:
-
-- **对话**:给 Muse 留言。他每隔几分钟经 SSH 过来看一次,回复也在这里(所以延迟
-  是几分钟,不是实时)。
-- **审批与任务**:白名单外的操作(任意 shell 命令等)会先生成任务卡片,你点
-  「批准执行」他才会做;「拒绝」即作罢。每个任务卡都完整展示他将要执行的命令
-  (代码),执行后带结果回显;重大操作有红色标记。
-- **机器状态**:主机名、系统、运行时长、负载、内存、磁盘、失败服务一览。
-- **审计日志**:谁在什么时候做了什么(面板审批、Muse 经 SSH 的动作都会记)。
-- **设置**:三个授权档位随时可切、立即生效——
-  **全权**(所有操作直接执行)/ **重大请求确认**(普通操作直做,重大操作先批)/
-  **每个请求确认**(每个操作都先等你批准)。还能看到他历次连接的登记记录,
-  并可终止某个连接;红色「立即中止」按钮会同时断开他的连接、掐断他名下
-  的进程、把待执行与执行中的任务标记为已中止。
-
-他每次接入都会先在面板登记一条连接记录(时间、来意),不登记不能干活;
-「每个请求确认」档下,连这条连接本身也要你在面板登录后点「确认连接」才生效。
-你的全部确认动作只需要一件事:打开面板地址、登录、在浏览器里点确认,不涉及任何
-命令行。一切操作要执行的命令都会先原样出现在任务卡上,你看得见全部代码。
-
-Muse 经 SSH 读写面板数据的命令是 `/usr/local/bin/muse-panel-ctl`
-(queue / reply / task-create / task-result / audit)。
-
-## 安全模型
-
-- Muse 不持有你任何账号的密码:`muse-ops` 密码锁定且禁密码登录,只认公钥。
-- 面板密码只存 PBKDF2 哈希在本机;登录连错 5 次锁定 5 分钟;会话 7 天过期。
-- Muse 的 sudo 操作全量记日志(`/var/log/muse-ops-sudo.log`),面板审计可查。
-- 白名单内的只读巡检他直接做;白名单外的命令必须经面板审批。
-
-## 吊销 Muse 的访问(随时,不需要 Muse 配合)
+## 吊销 Muse 的访问（随时，不需要 Muse 配合）
 
 ```
 userdel -r muse-ops
@@ -105,30 +34,7 @@ userdel -r muse-ops
 
 或只删 `/home/muse-ops/.ssh/authorized_keys` 里的公钥。删完他立刻进不来。
 
-## 卸载
+## 说明
 
-推荐用菜单:`bash manage.sh` 选 2。或直接:
-
-```
-bash uninstall.sh            # 只卸面板程序/服务,保留数据与运维账号
-bash uninstall.sh --purge    # 彻底清除(等同菜单选 2)
-```
-
-## 重置面板密码
-
-停服务后执行(把新密码替换进去):
-
-```
-systemctl stop muse-ops-panel
-MUSE_PANEL_INIT_PW='新密码至少8位' runuser -u muse-panel -- \
-  python3 /opt/muse-ops-panel/server.py --init --db /var/lib/muse-ops-panel/panel.db
-systemctl start muse-ops-panel
-```
-
-## 组成
-
-- `panel/server.py` 面板后端(Python 标准库零依赖:登录/对话/审批/状态/审计 API)
-- `panel/static/index.html` 面板前端(单文件)
-- `panel/ctl.py` Muse 侧命令行(经 SSH 调用)
-- `manage.sh` 管理菜单(1 安装/更新含依赖,2 卸载软件及依赖)
-- `install.sh` / `uninstall.sh` 实际执行安装/卸载的脚本(菜单调用它们)
+- 本仓库已精减为 AGENT 版（仅运维账号）。早期的面板版（含对话/审批/审计面板）保留在 Git 标签 `with-panel-final` 中，需要时可 checkout 回来安装。
+- Muse 的 sudo 操作全量记日志（`/var/log/muse-ops-sudo.log`），随时可查。
