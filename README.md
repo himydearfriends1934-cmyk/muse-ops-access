@@ -24,11 +24,15 @@ bash manage.sh
 
 也可以直接带参数：`bash manage.sh install` / `bash manage.sh uninstall` / `bash manage.sh verify`，或跳过菜单直接运行 `bash install.sh` / `bash uninstall.sh` / `bash verify.sh`。
 
-## 各系统快速开始
+## 各系统快速开始（脚本自动识别机器类型）
 
-- **Debian/Ubuntu**：直接跑上面的安装命令即可（缺 sudo 会尝试自动装）。
-- **Alpine**：若 `bash`、`git`、`curl`、`sshd` 缺，先 `apk add bash git curl openssh sudo`，再跑安装命令。安装脚本会自动适配 Alpine（账号创建方式、免密 sudo、sshd 重载、锁定账号坑均已处理）。强烈建议 sshd 只监听 Tailscale 地址。
-- **RHEL 系（CentOS/Rocky/Oracle Linux 等）**：同 Debian 路径即可。
+安装脚本会自动识别发行版家族（Debian/Ubuntu、RHEL 系、Alpine、Arch、SUSE）、初始化系统（systemd/OpenRC/SysV），并按类型自动适配：缺 `sudo`、`sshd` 时自动补装并启用，账号创建与 sshd 配置写法按系统分别处理。
+
+- **常规机器**：直接跑上面的安装命令即可。
+- **连 bash/sshd 都缺的精简机器**（如 Alpine 默认、最小化云镜像）：先把文件弄到机器上，然后跑 `sh boot.sh`——它会先补齐 bash、openssh、sudo、curl，再自动转入正式安装。
+- **没有 git 的机器**：不用装 git，下载仓库 zip 解压后跑 `bash manage.sh install`（或 `sh boot.sh`）。
+- **纯 IPv6 机器**：github.com 只有 IPv4、没有 IPv6 地址，这类机器**下载不了 zip**，属正常现象。用 Tailscale 传文件（Taildrop）或从另一台机器 scp 把 zip 送过去，解压后照常安装；安装自检会优先打印 Tailscale IP，那就是发给 Muse 的接入地址。
+- **Alpine 特别说明**：脚本已处理无 PAM 的 sshd 拒绝 `!` 锁定账号的坑；强烈建议 sshd 只监听 Tailscale 地址。
 
 ## 装完这样交付（重要）
 

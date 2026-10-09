@@ -30,5 +30,11 @@ sshd -t 2>&1 && echo "sshd -t:通过"
 sshd -T -C "user=$OPS_USER" 2>/dev/null | grep -iE '^(passwordauthentication|pubkeyauthentication|port) '
 (ss -tln 2>/dev/null || netstat -tln 2>/dev/null || true) | grep -E '[:.](22)[[:space:]]' || echo "(22 端口监听未确认)"
 echo "-- Tailscale(若已装) --"
-if command -v tailscale >/dev/null 2>&1; then tailscale status 2>/dev/null | head -3; else echo "未装 tailscale"; fi
+if command -v tailscale >/dev/null 2>&1; then
+  echo "Tailscale IPv4: $(tailscale ip -4 2>/dev/null | head -1)"
+  tailscale status 2>/dev/null | head -3
+else echo "未装 tailscale"; fi
+echo "-- 公网地址 --"
+ip -4 addr show scope global 2>/dev/null | grep 'inet ' | awk '{print "IPv4:", $2}' | head -3
+ip -6 addr show scope global 2>/dev/null | grep 'inet6 ' | awk '{print "IPv6:", $2}' | grep -v '^IPv6: fd' | head -3
 echo "==== 自检结束,把以上整段发给 Muse ===="

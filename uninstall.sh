@@ -12,7 +12,13 @@ DATA_DIR="/var/lib/muse-ops-panel"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行: bash uninstall.sh" >&2; exit 1; }
 
+# 发行版家族识别(与 install.sh 同口径,保证各类机器删法一致)
 ALPINE=0
+if [ -f /etc/os-release ]; then
+  _osid="$(grep -E '^ID=' /etc/os-release | head -1 | cut -d= -f2- | tr -d '"')"
+  _oslike="$(grep -E '^ID_LIKE=' /etc/os-release | head -1 | cut -d= -f2- | tr -d '"')"
+  case " $_osid $_oslike " in *" alpine "*) ALPINE=1 ;; esac
+fi
 [ -f /etc/alpine-release ] && ALPINE=1
 
 reload_sshd() {
@@ -26,7 +32,7 @@ reload_sshd() {
 }
 
 del_ops_user() {
-  if [ "$ALPINE" = "1" ]; then
+  if [ "$ALPINE" = "1" ] || ! command -v userdel >/dev/null 2>&1; then
     deluser --remove-home "$OPS_USER" 2>/dev/null || deluser "$OPS_USER" 2>/dev/null || true
     delgroup "$OPS_USER" 2>/dev/null || true
   else

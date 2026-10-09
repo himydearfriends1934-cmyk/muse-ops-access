@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # MUSE 运维接入(AGENT 版) 一键安装(在目标 VPS 上以 root 运行)
-#   bash install.sh
+#   bash install.sh            常规安装
+#   sh boot.sh                 没装 bash/sshd 的机器先用这个(它会补齐依赖再转回来)
+# 自动识别机器类型:发行版家族(Debian/Ubuntu、RHEL 系、Alpine、Arch、SUSE)、
+# 初始化系统(systemd/OpenRC/SysV)、缺失依赖(sudo/sshd 自动补装并启用)。
 # 只做一件事:建运维账号 muse-ops(密钥登录 + sudo 留痕),供 Muse 经 SSH 接入。
 # Muse 不知道你的任何密码:muse-ops 密码锁定、禁密码登录,只认下面这把公钥。
-# 支持 Debian/Ubuntu(systemd)、RHEL 系、Alpine(OpenRC)。装完自动跑一遍自检并打印,
-# 把输出整段发给 Muse,他核验全绿后再连接,避免装完才发现连不上。
+# 装完自动跑一遍自检并打印接入信息,把输出发给 Muse 即可,他只读核验后再干活。
 set -euo pipefail
 
 PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/2 hatch"
@@ -12,45 +14,111 @@ OPS_USER="muse-ops"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行: bash install.sh" >&2; exit 1; }
 
-ALPINE=0
-[ -f /etc/alpine-release ] && ALPINE=1
-
 say() { echo "$*"; }
 ok()  { echo "[OK] $*"; }
 bad() { echo "[FAIL] $*"; FAILURES=$((FAILURES+1)); }
 FAILURES=0
 
-reload_sshd() {
-  if command -v systemctl >/dev/null 2>&1; then
-    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
-  elif command -v rc-service >/dev/null 2>&1; then
-    rc-service sshd reload 2>/dev/null || rc-service openssh reload 2>/dev/null || true
-  elif [ -x /etc/init.d/sshd ]; then
-    /etc/init.d/sshd reload 2>/dev/null || true
+# --- 平台识别(发行版家族 + init + 包管理器) ---
+detect_platform() {
+  OS_ID=""; OS_LIKE=""; OS_FAMILY="unknown"; INIT_SYSTEM="unknown"; PKG=""
+  local osrel="${MUSE_OS_RELEASE_FILE:-/etc/os-release}"
+  if [ -f "$osrel" ]; then
+    OS_ID="$(grep -E '^ID=' "$osrel" | head -1 | cut -d= -f2- | tr -d '"' || true)"
+    OS_LIKE="$(grep -E '^ID_LIKE=' "$osrel" | head -1 | cut -d= -f2- | tr -d '"' || true)"
   fi
+  case " $OS_ID $OS_LIKE " in
+    *" alpine "*) OS_FAMILY="alpine" ;;
+    *" debian "*|*" ubuntu "*) OS_FAMILY="debian" ;;
+    *" rhel "*|*" fedora "*|*" centos "*) OS_FAMILY="rhel" ;;
+    *" arch "*) OS_FAMILY="arch" ;;
+    *" suse "*) OS_FAMILY="suse" ;;
+  esac
+  [ "$OS_FAMILY" = "unknown" ] && [ -f /etc/alpine-release ] && OS_FAMILY="alpine"
+  if command -v systemctl >/dev/null 2>&1 && [ "$(ps -p 1 -o comm= 2>/dev/null)" = "systemd" ]; then
+    INIT_SYSTEM="systemd"
+  elif command -v rc-service >/dev/null 2>&1; then
+    INIT_SYSTEM="openrc"
+  elif [ -d /etc/init.d ]; then
+    INIT_SYSTEM="sysv"
+  fi
+  case "$OS_FAMILY" in
+    debian) PKG="apt" ;;
+    alpine) PKG="apk" ;;
+    rhel) command -v dnf >/dev/null 2>&1 && PKG="dnf" || PKG="yum" ;;
+    arch) PKG="pacman" ;;
+    suse) PKG="zypper" ;;
+    *)
+      for m in apt-get apk dnf yum pacman zypper; do
+        command -v "$m" >/dev/null 2>&1 && { PKG="${m%%-get}"; break; }
+      done
+      ;;
+  esac
+}
+detect_platform
+[ "${MUSE_OPS_DETECT_ONLY:-0}" = "1" ] && { say "OS_FAMILY=$OS_FAMILY INIT_SYSTEM=$INIT_SYSTEM PKG=$PKG OS_ID=$OS_ID"; exit 0; }
+
+pkg_install() {
+  # 用法: pkg_install <debian包名> <alpine包名> <rhel包名> <arch包名> <suse包名>
+  case "$PKG" in
+    apt) DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$1" ;;
+    apk) apk add --no-cache "$2" ;;
+    dnf) dnf install -y "$3" ;;
+    yum) yum install -y "$3" ;;
+    pacman) pacman -Sy --noconfirm "$4" ;;
+    zypper) zypper --non-interactive install "$5" ;;
+    *) return 1 ;;
+  esac
 }
 
 ensure_sudo() {
   command -v sudo >/dev/null 2>&1 && return 0
-  if [ "$ALPINE" = "1" ] && command -v apk >/dev/null 2>&1; then
-    apk add --no-cache sudo >/dev/null 2>&1 || true
-  elif command -v apt-get >/dev/null 2>&1; then
-    apt-get install -y -qq sudo >/dev/null 2>&1 || true
-  elif command -v dnf >/dev/null 2>&1; then
-    dnf install -y sudo >/dev/null 2>&1 || true
-  elif command -v yum >/dev/null 2>&1; then
-    yum install -y sudo >/dev/null 2>&1 || true
-  fi
+  pkg_install sudo sudo sudo sudo sudo >/dev/null 2>&1 || true
   command -v sudo >/dev/null 2>&1
 }
 
-# --- 0) 前置检查 ---
+ensure_sshd() {
+  command -v sshd >/dev/null 2>&1 && return 0
+  pkg_install openssh-server openssh openssh-server openssh openssh >/dev/null 2>&1 || true
+  command -v sshd >/dev/null 2>&1
+}
+
+start_sshd() {
+  case "$INIT_SYSTEM" in
+    systemd) systemctl enable --now ssh >/dev/null 2>&1 || systemctl enable --now sshd >/dev/null 2>&1 || true ;;
+    openrc)
+      rc-update add sshd default >/dev/null 2>&1 || true
+      rc-service sshd status >/dev/null 2>&1 || rc-service sshd start >/dev/null 2>&1 || true
+      ;;
+    sysv) [ -x /etc/init.d/sshd ] && /etc/init.d/sshd start >/dev/null 2>&1 || true ;;
+  esac
+}
+
+reload_sshd() {
+  case "$INIT_SYSTEM" in
+    systemd) systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true ;;
+    openrc) rc-service sshd reload 2>/dev/null || rc-service sshd restart 2>/dev/null || true ;;
+    sysv) [ -x /etc/init.d/sshd ] && /etc/init.d/sshd reload 2>/dev/null || true ;;
+    *)
+      command -v systemctl >/dev/null 2>&1 && { systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true; }
+      command -v rc-service >/dev/null 2>&1 && { rc-service sshd reload 2>/dev/null || true; }
+      ;;
+  esac
+}
+
+say "机器类型: 发行版家族=$OS_FAMILY init=$INIT_SYSTEM 包管理器=${PKG:-未识别}"
+
+# --- 0) 前置检查:依赖缺了就自动补(sudo / sshd),补不上只警告,自检会标出来 ---
+if ! command -v sshd >/dev/null 2>&1; then
+  say "未检测到 sshd,尝试自动安装 openssh..."
+  ensure_sshd || say "警告:openssh 自动安装失败,请先手动装好 sshd 再重跑(纯 IPv6 机器可能因软件源不可达失败)"
+fi
 sshd -t >/dev/null 2>&1 || say "提示:sshd 当前配置校验不过,装完请看自检结果"
 ensure_sudo || say "警告:未找到 sudo 且自动安装失败,muse-ops 将没有 sudo(SSH 登录不受影响)"
 
 # --- 1) 运维账号 muse-ops(给 Muse 的 SSH 接入口) ---
 if ! id "$OPS_USER" >/dev/null 2>&1; then
-  if [ "$ALPINE" = "1" ]; then
+  if [ "$OS_FAMILY" = "alpine" ]; then
     adduser -D -s /bin/bash "$OPS_USER" 2>/dev/null || adduser -D -s /bin/sh "$OPS_USER"
     # Alpine 的 sshd(无 PAM)会拒绝 shadow 里带 ! 的锁定账号,连公钥也进不去;改成 * 才行
     command -v usermod >/dev/null 2>&1 && usermod -p '*' "$OPS_USER" 2>/dev/null || true
@@ -90,7 +158,7 @@ SSHD_BLOCK="Match User $OPS_USER
     KbdInteractiveAuthentication no
     PubkeyAuthentication yes"
 SSHD_CFG_WRITTEN="none"
-if [ "$ALPINE" = "1" ]; then
+if [ "$OS_FAMILY" = "alpine" ]; then
   # Alpine 的 sshd_config 通常不 Include sshd_config.d,直接写主配置(带标记防重复)
   if ! grep -q "MUSE-OPS-BEGIN" /etc/ssh/sshd_config 2>/dev/null; then
     printf '\n# MUSE-OPS-BEGIN\n%s\n# MUSE-OPS-END\n' "$SSHD_BLOCK" >> /etc/ssh/sshd_config
@@ -103,6 +171,7 @@ else
 fi
 if sshd -t 2>/dev/null; then
   reload_sshd
+  start_sshd
 else
   [ "$SSHD_CFG_WRITTEN" = "sshd_config.d" ] && rm -f "/etc/ssh/sshd_config.d/$OPS_USER.conf"
   say "警告:sshd 配置校验未过(账号与公钥仍可用);若是 Alpine 主配置块,请把 sshd -t 的报错发给 Muse"
@@ -117,10 +186,10 @@ if grep -qxF "$PUBKEY" "$SSH_DIR/authorized_keys" 2>/dev/null; then ok "公钥�
   && ok ".ssh 目录权限 700" || bad ".ssh 目录权限不是 700(实际 $(stat -c %a "$SSH_DIR" 2>/dev/null))"
 [ "$(stat -c %a "$SSH_DIR/authorized_keys" 2>/dev/null)" = "600" ] \
   && ok "authorized_keys 权限 600" || bad "authorized_keys 权限不是 600"
-SHADOW2="$(awk -F: -v u="$OPS_USER" '$1==u{print $2}' /etc/shadow 2>/dev/null)"
+SHADOW2="$(awk -F: -v u="$OPS_USER" '$1==u{print $2}' /etc/shadow 2>/dev/null || true)"
 case "$SHADOW2" in
   '!'*)
-    if [ "$ALPINE" = "1" ]; then
+    if [ "$OS_FAMILY" = "alpine" ]; then
       bad "密码字段带 !(Alpine 无 PAM 的 sshd 会拒绝公钥登录,需改成 *)"
     else
       ok "密码字段为锁定态(此系统走 PAM,公钥登录不受影响)"
@@ -129,7 +198,7 @@ case "$SHADOW2" in
   *) ok "密码字段形态可接受" ;;
 esac
 [ -f "/etc/sudoers.d/$OPS_USER" ] && ok "sudoers 已配置(免密+日志)" || say "[提示] 无 sudoers 配置:未装 sudo 或写入失败,muse-ops 无 sudo"
-if command -v visudo >/dev/null 2>&1; then
+if command -v visudo >/dev/null 2>&1 && [ -f "/etc/sudoers.d/$OPS_USER" ]; then
   visudo -cf "/etc/sudoers.d/$OPS_USER" >/dev/null 2>&1 && ok "sudoers 语法校验通过" || bad "sudoers 语法校验失败"
 fi
 su - "$OPS_USER" -c 'sudo -n true' >/dev/null 2>&1 && ok "$OPS_USER 可免密 sudo" || say "[提示] $OPS_USER 暂时无法免密 sudo(无 sudo 或配置未生效)"
@@ -139,18 +208,30 @@ if sshd -T -C "user=$OPS_USER" 2>/dev/null | grep -qi '^passwordauthentication n
 else
   say "[提示] sshd 对 $OPS_USER 的生效配置未确认禁密码(以 sshd -T 实际输出为准,可发给 Muse 判断)"
 fi
-if (ss -tln 2>/dev/null || netstat -tln 2>/dev/null || true) | grep -q '[:.]22[[:space:]]'; then
-  ok "sshd 正在监听 22 端口"
+SSHD_PORT="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}' || true)"
+SSHD_PORT="${SSHD_PORT:-22}"
+if (ss -tln 2>/dev/null || netstat -tln 2>/dev/null || true) | grep -q "[:.]$SSHD_PORT[[:space:]]"; then
+  ok "sshd 正在监听 $SSHD_PORT 端口"
 else
-  say "[提示] 未从 22 端口确认 sshd 监听(自定义端口或 ss/netstat 不可用,可发给 Muse 判断)"
+  say "[提示] 未确认 sshd 在 $SSHD_PORT 端口监听(sshd 可能未启动,或 ss/netstat 不可用,可发给 Muse 判断)"
 fi
-PUBIP="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || wget -qO- --timeout=5 https://api.ipify.org 2>/dev/null || true)"
-SSHD_PORT="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')"
-[ "$FAILURES" = "0" ] && say "自检结论:全部通过,可以把下面信息发给 Muse 接入" \
+[ "$FAILURES" = "0" ] && say "自检结论:全部通过,把下面接入信息发给 Muse 即可" \
                       || say "自检结论:有 $FAILURES 项 FAIL,把整段自检输出发给 Muse 处理"
 say "=================================================="
-say "  IP: ${PUBIP:-（没探测到，填这台机器的公网或 Tailscale IP）}"
-say "  SSH端口: ${SSHD_PORT:-22}"
+say "-------------------- 接入信息(发给 Muse) --------------------"
+if command -v tailscale >/dev/null 2>&1; then
+  TS4="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+  [ -n "$TS4" ] && say "  Tailscale IP: $TS4(优先用这个,Muse 走内网接入)"
+fi
+PUB4="$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || wget -qO- --timeout=5 https://api.ipify.org 2>/dev/null || true)"
+PUB6="$(curl -g -s --max-time 5 https://api64.ipify.org 2>/dev/null || wget -qO- --timeout=5 https://api64.ipify.org 2>/dev/null || true)"
+[ -n "$PUB4" ] && say "  公网 IPv4: $PUB4"
+[ -n "$PUB6" ] && [ "$PUB6" != "$PUB4" ] && say "  公网 IPv6: $PUB6"
+if ! ip -4 addr show scope global 2>/dev/null | grep -q 'inet '; then
+  say "  提示:本机无公网 IPv4(疑似纯 IPv6 机器),github.com 等仅 IPv4 的站点直连不上属正常现象"
+fi
+say "  SSH端口: $SSHD_PORT"
 say "  账号: $OPS_USER"
+say "--------------------------------------------------------------"
 say "吊销访问(随时,不需要 Muse 配合):删账号 $OPS_USER,或删 $SSH_DIR/authorized_keys 里的公钥"
 say "卸载: bash uninstall.sh(连运维账号一并删干净)"
