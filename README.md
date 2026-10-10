@@ -4,6 +4,20 @@
 
 Muse 不知道你的任何密码：这个账号密码锁定、禁密码登录，只认 Muse 的公钥（私钥只在 Muse 的运行环境里）。你在 Muse 聊天里直接指挥他即可，不需要任何面板。
 
+## 一行安装（curl，服务器上 root 执行，不用先下载仓库）
+
+```
+curl -fsSL https://raw.githubusercontent.com/himydearfriends1934-cmyk/muse-ops-access/main/install.sh | bash
+```
+
+连 bash 都没有的精简机器改用引导脚本（自动补齐依赖，同目录缺 install.sh 时会自己去仓库拉取）：
+
+```
+curl -fsSL https://raw.githubusercontent.com/himydearfriends1934-cmyk/muse-ops-access/main/boot.sh | sh
+```
+
+注意：仓库托管在 GitHub、只有 IPv4 入口，纯 IPv6 机器拉不到，仍需 Taildrop/scp 把 zip 送过去再本地安装。
+
 ## 一键安装 / 卸载（服务器上 root 执行）
 
 ```

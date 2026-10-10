@@ -49,5 +49,13 @@ if [ -n "$need" ]; then
 fi
 
 command -v bash >/dev/null 2>&1 || { echo "boot: bash 仍不可用,无法继续" >&2; exit 1; }
+
+# 管道单文件运行(如 curl | sh)时同目录下没有 install.sh,从仓库直接拉取正式安装脚本
+if [ ! -f "$DIR/install.sh" ]; then
+  echo "boot: 未发现同目录 install.sh,从 GitHub 拉取..."
+  curl -fsSL "https://raw.githubusercontent.com/himydearfriends1934-cmyk/muse-ops-access/main/install.sh" -o "$DIR/install.sh" \
+    || { echo "boot: 下载 install.sh 失败,请检查网络后重试" >&2; exit 1; }
+fi
+
 echo "boot: 依赖就绪,转交 install.sh"
 exec bash "$DIR/install.sh" "$@"
