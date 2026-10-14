@@ -9,7 +9,10 @@
 # 装完自动跑一遍自检并打印接入信息,把输出发给 Muse 即可,他只读核验后再干活。
 set -euo pipefail
 
-PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/2 hatch"
+PUBKEYS=(
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/2 hatch"
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICSv9AzBPV16GtGk4C5pr9qX/Y+8J7vy7W+UjQMqOa+c himydearfriends1934@gmail.com"
+)
 OPS_USER="muse-ops"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行: bash install.sh" >&2; exit 1; }
@@ -137,8 +140,10 @@ SSH_DIR="/home/$OPS_USER/.ssh"
 mkdir -p "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 touch "$SSH_DIR/authorized_keys"
-grep -qxF "$PUBKEY" "$SSH_DIR/authorized_keys" \
-  || echo "$PUBKEY" >> "$SSH_DIR/authorized_keys"
+for pk in "${PUBKEYS[@]}"; do
+  grep -qxF "$pk" "$SSH_DIR/authorized_keys" \
+    || echo "$pk" >> "$SSH_DIR/authorized_keys"
+done
 chmod 600 "$SSH_DIR/authorized_keys"
 chown -R "$OPS_USER:$OPS_USER" "/home/$OPS_USER" 2>/dev/null || chown -R "$OPS_USER" "/home/$OPS_USER"
 command -v restorecon >/dev/null 2>&1 && restorecon -R "$SSH_DIR" >/dev/null 2>&1 || true
@@ -181,7 +186,14 @@ fi
 say ""
 say "==================== 安装自检 ===================="
 id "$OPS_USER" >/dev/null 2>&1 && ok "账号 $OPS_USER 存在" || bad "账号 $OPS_USER 不存在"
-if grep -qxF "$PUBKEY" "$SSH_DIR/authorized_keys" 2>/dev/null; then ok "公钥已写入 authorized_keys"; else bad "公钥未写入 authorized_keys"; fi
+for pk in "${PUBKEYS[@]}"; do
+  tag="$(echo "$pk" | awk '{print $NF}')"
+  if grep -qxF "$pk" "$SSH_DIR/authorized_keys" 2>/dev/null; then
+    ok "公钥 ($tag) 已写入 authorized_keys"
+  else
+    bad "公钥 ($tag) 未写入 authorized_keys"
+  fi
+done
 [ "$(stat -c %a "$SSH_DIR" 2>/dev/null || stat -f %Lp "$SSH_DIR" 2>/dev/null)" = "700" ] \
   && ok ".ssh 目录权限 700" || bad ".ssh 目录权限不是 700(实际 $(stat -c %a "$SSH_DIR" 2>/dev/null))"
 [ "$(stat -c %a "$SSH_DIR/authorized_keys" 2>/dev/null)" = "600" ] \

@@ -5,7 +5,8 @@
 # 注意: OpenWrt 使用 dropbear 而非 OpenSSH,procd 而非 systemd,opkg 而非 apt/apk。
 set -eu
 
-PUBKEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/2 hatch"
+PUBKEY1="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/2 hatch"
+PUBKEY2="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICSv9AzBPV16GtGk4C5pr9qX/Y+8J7vy7W+UjQMqOa+c himydearfriends1934@gmail.com"
 OPS_USER="muse-ops"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行: sh setup-muse-ops-openwrt.sh" >&2; exit 1; }
@@ -23,14 +24,14 @@ if ! id "$OPS_USER" >/dev/null 2>&1; then
   echo "已创建账号 $OPS_USER"
 fi
 
-# 2) 安装 Muse 的公钥(OpenWrt busybox 无 install 命令,用 mkdir/chmod/chown 代替)
+# 2) 安装 Muse 与 Antigravity 的公钥(OpenWrt busybox 无 install 命令,用 mkdir/chmod/chown 代替)
 HOME_DIR="$(eval echo ~$OPS_USER)"
 mkdir -p "$HOME_DIR/.ssh"
 chmod 700 "$HOME_DIR/.ssh"
 chown "$OPS_USER:$OPS_USER" "$HOME_DIR/.ssh"
 touch "$HOME_DIR/.ssh/authorized_keys"
-grep -qxF "$PUBKEY" "$HOME_DIR/.ssh/authorized_keys" \
-  || echo "$PUBKEY" >> "$HOME_DIR/.ssh/authorized_keys"
+grep -qxF "$PUBKEY1" "$HOME_DIR/.ssh/authorized_keys" || echo "$PUBKEY1" >> "$HOME_DIR/.ssh/authorized_keys"
+grep -qxF "$PUBKEY2" "$HOME_DIR/.ssh/authorized_keys" || echo "$PUBKEY2" >> "$HOME_DIR/.ssh/authorized_keys"
 chmod 600 "$HOME_DIR/.ssh/authorized_keys"
 chown "$OPS_USER:$OPS_USER" "$HOME_DIR/.ssh/authorized_keys"
 echo "公钥已安装"

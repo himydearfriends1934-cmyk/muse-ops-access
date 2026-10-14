@@ -5,10 +5,11 @@
 set -uo pipefail
 
 OPS_USER="muse-ops"
-PUBKEY_FRAG="AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/"
+PUBKEY_MUSE="AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/"
+PUBKEY_AGY="AAAAC3NzaC1lZDI1NTE5AAAAICSv9AzBPV16GtGk4C5pr9qX/Y+8J7vy7W+UjQMqOa+c"
 SSH_DIR="/home/$OPS_USER/.ssh"
 
-echo "==== MUSE AGENT 自检 ===="
+echo "==== MUSE & ANTIGRAVITY AGENT 自检 ===="
 echo "-- 系统 --"
 uname -a
 [ -f /etc/os-release ] && grep -E '^(PRETTY_NAME|ID)=' /etc/os-release
@@ -17,7 +18,8 @@ id "$OPS_USER" 2>/dev/null || echo "账号 $OPS_USER 不存在(没装或已卸�
 awk -F: -v u="$OPS_USER" '$1==u{print "shadow 密码字段首字符:", substr($2,1,1), "(Alpine 必须是 *;Debian 系 ! 正常)"}' /etc/shadow 2>/dev/null
 echo "-- 公钥与权限 --"
 if [ -f "$SSH_DIR/authorized_keys" ]; then
-  grep -q "$PUBKEY_FRAG" "$SSH_DIR/authorized_keys" && echo "公钥:已写入" || echo "公钥:未找到 Muse 的公钥"
+  grep -q "$PUBKEY_MUSE" "$SSH_DIR/authorized_keys" && echo "Muse 公钥:已写入" || echo "Muse 公钥:未找到"
+  grep -q "$PUBKEY_AGY" "$SSH_DIR/authorized_keys" && echo "Antigravity 公钥:已写入" || echo "Antigravity 公钥:未找到"
   ls -ld "$SSH_DIR" "$SSH_DIR/authorized_keys"
 else
   echo "authorized_keys 不存在"
