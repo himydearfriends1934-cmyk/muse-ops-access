@@ -23,9 +23,11 @@ if ! id "$OPS_USER" >/dev/null 2>&1; then
   echo "已创建账号 $OPS_USER"
 fi
 
-# 2) 安装 Muse 的公钥
+# 2) 安装 Muse 的公钥(OpenWrt busybox 无 install 命令,用 mkdir/chmod/chown 代替)
 HOME_DIR="$(eval echo ~$OPS_USER)"
-install -d -m 700 -o "$OPS_USER" -g "$OPS_USER" "$HOME_DIR/.ssh"
+mkdir -p "$HOME_DIR/.ssh"
+chmod 700 "$HOME_DIR/.ssh"
+chown "$OPS_USER:$OPS_USER" "$HOME_DIR/.ssh"
 touch "$HOME_DIR/.ssh/authorized_keys"
 grep -qxF "$PUBKEY" "$HOME_DIR/.ssh/authorized_keys" \
   || echo "$PUBKEY" >> "$HOME_DIR/.ssh/authorized_keys"
