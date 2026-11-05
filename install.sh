@@ -12,6 +12,7 @@ set -euo pipefail
 PUBKEYS=(
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/2 hatch"
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICSv9AzBPV16GtGk4C5pr9qX/Y+8J7vy7W+UjQMqOa+c himydearfriends1934@gmail.com"
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC8iGMg8jsRm88YgOiAwyavBwkq6LN438Vy0hNy1Dtya muse-ops@cloudium3"
 )
 OPS_USER="muse-ops"
 

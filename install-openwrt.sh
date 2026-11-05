@@ -7,6 +7,7 @@ set -eu
 
 PUBKEY1="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/2 hatch"
 PUBKEY2="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICSv9AzBPV16GtGk4C5pr9qX/Y+8J7vy7W+UjQMqOa+c himydearfriends1934@gmail.com"
+PUBKEY3="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC8iGMg8jsRm88YgOiAwyavBwkq6LN438Vy0hNy1Dtya muse-ops@cloudium3"
 OPS_USER="muse-ops"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行: sh setup-muse-ops-openwrt.sh" >&2; exit 1; }
@@ -32,6 +33,7 @@ chown "$OPS_USER:$OPS_USER" "$HOME_DIR/.ssh"
 touch "$HOME_DIR/.ssh/authorized_keys"
 grep -qxF "$PUBKEY1" "$HOME_DIR/.ssh/authorized_keys" || echo "$PUBKEY1" >> "$HOME_DIR/.ssh/authorized_keys"
 grep -qxF "$PUBKEY2" "$HOME_DIR/.ssh/authorized_keys" || echo "$PUBKEY2" >> "$HOME_DIR/.ssh/authorized_keys"
+grep -qxF "$PUBKEY3" "$HOME_DIR/.ssh/authorized_keys" || echo "$PUBKEY3" >> "$HOME_DIR/.ssh/authorized_keys"
 chmod 600 "$HOME_DIR/.ssh/authorized_keys"
 chown "$OPS_USER:$OPS_USER" "$HOME_DIR/.ssh/authorized_keys"
 echo "公钥已安装"
