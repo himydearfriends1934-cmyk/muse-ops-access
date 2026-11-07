@@ -8,6 +8,7 @@ OPS_USER="muse-ops"
 PUBKEY_MUSE="AAAAC3NzaC1lZDI1NTE5AAAAIEcbZl+X1air4Z6dbom1PIMKSCr9Ns7/2dg8yFTRHM/"
 PUBKEY_AGY="AAAAC3NzaC1lZDI1NTE5AAAAICSv9AzBPV16GtGk4C5pr9qX/Y+8J7vy7W+UjQMqOa+c"
 PUBKEY_AGENT="AAAAC3NzaC1lZDI1NTE5AAAAIC8iGMg8jsRm88YgOiAwyavBwkq6LN438Vy0hNy1Dtya"
+PUBKEY_TERMIUS="AAAAC3NzaC1lZDI1NTE5AAAAIFvyNuuO/T2nX52JYh6L/sl/0mQgE/Uy3Z2IV+C/+a8Z"
 SSH_DIR="/home/$OPS_USER/.ssh"
 
 echo "==== MUSE & ANTIGRAVITY AGENT 自检 ===="
@@ -22,6 +23,7 @@ if [ -f "$SSH_DIR/authorized_keys" ]; then
   grep -q "$PUBKEY_MUSE" "$SSH_DIR/authorized_keys" && echo "Muse 公钥:已写入" || echo "Muse 公钥:未找到"
   grep -q "$PUBKEY_AGY" "$SSH_DIR/authorized_keys" && echo "Antigravity 公钥:已写入" || echo "Antigravity 公钥:未找到"
   grep -q "$PUBKEY_AGENT" "$SSH_DIR/authorized_keys" && echo "Agent Mesh 公钥:已写入" || echo "Agent Mesh 公钥:未找到"
+  grep -q "$PUBKEY_TERMIUS" "$SSH_DIR/authorized_keys" && echo "Termius 公钥:已写入" || echo "Termius 公钥:未找到"
   ls -ld "$SSH_DIR" "$SSH_DIR/authorized_keys"
 else
   echo "authorized_keys 不存在"
